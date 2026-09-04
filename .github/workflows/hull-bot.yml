@@ -8,11 +8,18 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: hull-property-alert
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Install Python packages
         run: |
           python -m pip install requests beautifulsoup4
@@ -37,14 +44,24 @@ jobs:
               "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1"
           }
 
-          r = requests.get(URL, headers=headers, timeout=30)
+          print("Checking Places for People...")
+
+          r = requests.get(
+              URL,
+              headers=headers,
+              timeout=30
+          )
+
           r.raise_for_status()
+
+          print("Website response:", r.status_code)
 
           soup = BeautifulSoup(r.text, "html.parser")
 
           properties = {}
 
           for link in soup.find_all("a", href=True):
+
               href = link.get("href", "")
 
               if "propert" not in href.lower():
@@ -54,7 +71,8 @@ jobs:
 
               parent = link
 
-              for _ in range(5):
+              for _ in range(6):
+
                   if parent.parent:
                       parent = parent.parent
 
@@ -63,21 +81,50 @@ jobs:
                   if "£" in block:
                       break
 
-              prices = re.findall(r"£\s*([0-9,]+)", block)
+              block_lower = block.lower()
+
+              # Only Hull properties
+              if "hull" not in block_lower:
+                  continue
+
+              # Exclude over-55 properties
+              if re.search(
+                  r"over\s*55|55\s*\+|55\s*years?\s*and\s*over|age\s*55",
+                  block_lower
+              ):
+                  print("Skipping over-55 property:", href)
+                  continue
+
+              # Find rent
+              prices = re.findall(
+                  r"£\s*([0-9,]+)",
+                  block
+              )
 
               if not prices:
                   continue
 
-              price = int(prices[0].replace(",", ""))
+              price = int(
+                  prices[0].replace(",", "")
+              )
 
+              # Maximum £750 per month
               if price > 750:
                   continue
 
+              # Make full URL
               if href.startswith("/"):
-                  href = "https://rent.placesforpeople.co.uk" + href
+                  href = (
+                      "https://rent.placesforpeople.co.uk"
+                      + href
+                  )
 
               if href.startswith("http://"):
-                  href = href.replace("http://", "https://", 1)
+                  href = href.replace(
+                      "http://",
+                      "https://",
+                      1
+                  )
 
               title = text.strip()
 
@@ -90,68 +137,159 @@ jobs:
                   "url": href
               }
 
-          print("Matching properties found:", len(properties))
+          print(
+              "Matching properties found:",
+              len(properties)
+          )
 
+          # Load previously seen properties
           old = {}
 
           if os.path.exists(STATE_FILE):
+
               try:
-                  with open(STATE_FILE, "r") as f:
+                  with open(
+                      STATE_FILE,
+                      "r",
+                      encoding="utf-8"
+                  ) as f:
                       old = json.load(f)
-              except:
+
+              except Exception:
                   old = {}
 
+          # Find new properties
           new_properties = [
-              p for url, p in properties.items()
+              p
+              for url, p in properties.items()
               if url not in old
           ]
 
-          if old:
-              print("New properties:", len(new_properties))
+          print(
+              "New properties:",
+              len(new_properties)
+          )
 
-              topic = os.environ.get("NTFY_TOPIC", "").strip()
+          # Send notifications
+          topic = os.environ.get(
+              "NTFY_TOPIC",
+              ""
+          ).strip()
 
-              if topic and new_properties:
-                  for p in new_properties:
-                      message = (
-                          f"{p['title']}\n"
-                          f"Rent: £{p['price']} per month\n"
-                          f"{p['url']}"
-                      )
+          if topic and new_properties:
 
-                      requests.post(
-                          f"https://ntfy.sh/{topic}",
-                          data=message.encode("utf-8"),
-                          headers={
-                              "Title": "🏠 NEW HULL PROPERTY",
-                              "Priority": "max",
-                              "Tags": "house"
-                          },
-                          timeout=20
-                      )
+              for p in new_properties:
 
-                      print("Notification sent:", p["url"])
+                  message = (
+                      f"{p['title']}\n"
+                      f"Rent: £{p['price']} per month\n"
+                      f"{p['url']}"
+                  )
 
-          with open(STATE_FILE, "w") as f:
-              json.dump(properties, f, indent=2)
+                  response = requests.post(
+                      f"https://ntfy.sh/{topic}",
+                      data=message.encode("utf-8"),
+                      headers={
+                          "Title": "🏠 NEW HULL PROPERTY",
+                          "Priority": "max",
+                          "Tags": "house"
+                      },
+                      timeout=20
+                  )
 
-          subprocess.run(["git", "config", "user.name", "Hull Property Bot"])
-          subprocess.run(["git", "config", "user.email", "actions@github.com"])
+                  response.raise_for_status()
 
-          subprocess.run(["git", "add", STATE_FILE])
+                  print(
+                      "Notification sent:",
+                      p["url"]
+                  )
+
+          elif new_properties:
+
+              print(
+                  "New properties found, "
+                  "but NTFY_TOPIC secret is missing."
+              )
+
+          # Save current properties
+          with open(
+              STATE_FILE,
+              "w",
+              encoding="utf-8"
+          ) as f:
+
+              json.dump(
+                  properties,
+                  f,
+                  indent=2,
+                  ensure_ascii=False
+              )
+
+          # Save state back to GitHub
+          subprocess.run(
+              [
+                  "git",
+                  "config",
+                  "user.name",
+                  "Hull Property Bot"
+              ],
+              check=True
+          )
+
+          subprocess.run(
+              [
+                  "git",
+                  "config",
+                  "user.email",
+                  "actions@github.com"
+              ],
+              check=True
+          )
+
+          subprocess.run(
+              [
+                  "git",
+                  "add",
+                  STATE_FILE
+              ],
+              check=True
+          )
 
           result = subprocess.run(
-              ["git", "diff", "--cached", "--quiet"]
+              [
+                  "git",
+                  "diff",
+                  "--cached",
+                  "--quiet"
+              ]
           )
 
           if result.returncode != 0:
+
               subprocess.run(
-                  ["git", "commit", "-m", "Update property list"],
+                  [
+                      "git",
+                      "commit",
+                      "-m",
+                      "Update property list"
+                  ],
                   check=True
               )
+
               subprocess.run(
-                  ["git", "push"],
+                  [
+                      "git",
+                      "push"
+                  ],
                   check=True
               )
+
+              print("Property list saved.")
+
+          else:
+
+              print("No changes to save.")
+
+          print("Bot finished successfully.")
 
           PY
