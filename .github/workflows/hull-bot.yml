@@ -36,27 +36,42 @@ jobs:
           import os
           import subprocess
 
-          URL = "https://rent.placesforpeople.co.uk/properties.aspx?bed=2&lat=53.7676236&loc=Hull&lon=-0.3274198&max=9999&mil=5&pag=1&typ=0"
+          URL = (
+              "https://rent.placesforpeople.co.uk/"
+              "properties.aspx?"
+              "bed=2&"
+              "lat=53.7676236&"
+              "loc=Hull&"
+              "lon=-0.3274198&"
+              "max=9999&"
+              "mil=5&"
+              "pag=1&"
+              "typ=0"
+          )
 
           STATE_FILE = "seen_properties.json"
 
           headers = {
-              "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1"
+              "User-Agent": (
+                  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 "
+                  "like Mac OS X) AppleWebKit/605.1.15 "
+                  "Version/18.0 Mobile/15E148 Safari/604.1"
+              )
           }
 
           print("Checking Places for People...")
 
-          r = requests.get(
+          response = requests.get(
               URL,
               headers=headers,
               timeout=30
           )
 
-          r.raise_for_status()
+          response.raise_for_status()
 
-          print("Website response:", r.status_code)
+          print("Website response:", response.status_code)
 
-          soup = BeautifulSoup(r.text, "html.parser")
+          soup = BeautifulSoup(response.text, "html.parser")
 
           properties = {}
 
@@ -71,7 +86,9 @@ jobs:
 
               parent = link
 
-              for _ in range(6):
+              block = ""
+
+              for _ in range(8):
 
                   if parent.parent:
                       parent = parent.parent
@@ -88,10 +105,15 @@ jobs:
                   continue
 
               # Exclude over-55 properties
-              if re.search(
-                  r"over\s*55|55\s*\+|55\s*years?\s*and\s*over|age\s*55",
+              over_55 = re.search(
+                  r"over\s*55|"
+                  r"55\s*\+|"
+                  r"55\s*years?\s*and\s*over|"
+                  r"age\s*55",
                   block_lower
-              ):
+              )
+
+              if over_55:
                   print("Skipping over-55 property:", href)
                   continue
 
@@ -104,11 +126,14 @@ jobs:
               if not prices:
                   continue
 
-              price = int(
-                  prices[0].replace(",", "")
-              )
+              try:
+                  price = int(
+                      prices[0].replace(",", "")
+                  )
+              except ValueError:
+                  continue
 
-              # Maximum £750 per month
+              # Maximum rent £750
               if price > 750:
                   continue
 
@@ -119,7 +144,7 @@ jobs:
                       + href
                   )
 
-              if href.startswith("http://"):
+              elif href.startswith("http://"):
                   href = href.replace(
                       "http://",
                       "https://",
@@ -142,7 +167,7 @@ jobs:
               len(properties)
           )
 
-          # Load previously seen properties
+          # Load previous state
           old = {}
 
           if os.path.exists(STATE_FILE):
@@ -158,19 +183,31 @@ jobs:
               except Exception:
                   old = {}
 
-          # Find new properties
-          new_properties = [
-              p
-              for url, p in properties.items()
-              if url not in old
-          ]
+          # First run:
+          # save current properties without notifications
+          first_run = not bool(old)
+
+          if first_run:
+              new_properties = []
+              print(
+                  "First run detected - "
+                  "saving current properties "
+                  "without notifications."
+              )
+
+          else:
+              new_properties = [
+                  p
+                  for url, p in properties.items()
+                  if url not in old
+              ]
 
           print(
               "New properties:",
               len(new_properties)
           )
 
-          # Send notifications
+          # Send ntfy notifications
           topic = os.environ.get(
               "NTFY_TOPIC",
               ""
@@ -186,7 +223,7 @@ jobs:
                       f"{p['url']}"
                   )
 
-                  response = requests.post(
+                  ntfy_response = requests.post(
                       f"https://ntfy.sh/{topic}",
                       data=message.encode("utf-8"),
                       headers={
@@ -197,7 +234,7 @@ jobs:
                       timeout=20
                   )
 
-                  response.raise_for_status()
+                  ntfy_response.raise_for_status()
 
                   print(
                       "Notification sent:",
@@ -208,7 +245,7 @@ jobs:
 
               print(
                   "New properties found, "
-                  "but NTFY_TOPIC secret is missing."
+                  "but NTFY_TOPIC is missing."
               )
 
           # Save current properties
@@ -225,7 +262,7 @@ jobs:
                   ensure_ascii=False
               )
 
-          # Save state back to GitHub
+          # Configure Git
           subprocess.run(
               [
                   "git",
@@ -246,6 +283,7 @@ jobs:
               check=True
           )
 
+          # Add state file
           subprocess.run(
               [
                   "git",
@@ -255,6 +293,7 @@ jobs:
               check=True
           )
 
+          # Check whether anything changed
           result = subprocess.run(
               [
                   "git",
