@@ -23,6 +23,7 @@ jobs:
       - name: Check Places for People
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
           python - <<'PY'
           import requests
@@ -56,9 +57,9 @@ jobs:
               )
           }
 
-          # TEST VERSION:
-          # We temporarily allow Beverley so we can test
-          # whether the bot can detect the known 2-bedroom house there.
+          # TEST VERSION
+          # Beverley is temporarily included so we can test
+          # that the bot can find the known £560 house.
 
           allowed_places = [
               "hull",
@@ -90,7 +91,6 @@ jobs:
 
           candidate_links = set()
 
-          # Find all individual property links
           for link in soup.find_all("a", href=True):
 
               href = link.get("href", "")
@@ -112,7 +112,6 @@ jobs:
 
           properties = {}
 
-          # Check every property page
           for property_url in candidate_links:
 
               try:
@@ -137,9 +136,7 @@ jobs:
 
                   lower = text.lower()
 
-                  # -------------------------------
                   # LOCATION
-                  # -------------------------------
 
                   if not any(
                       place in lower
@@ -151,9 +148,7 @@ jobs:
                       )
                       continue
 
-                  # -------------------------------
                   # HOUSE ONLY
-                  # -------------------------------
 
                   if "house" not in lower:
                       continue
@@ -165,9 +160,7 @@ jobs:
                   ):
                       continue
 
-                  # -------------------------------
                   # BEDROOMS
-                  # -------------------------------
 
                   bedroom_match = re.search(
                       r"(\d+)\s*bed(?:room)?s?",
@@ -184,9 +177,7 @@ jobs:
                   if bedrooms < 2:
                       continue
 
-                  # -------------------------------
                   # OVER 55
-                  # -------------------------------
 
                   if re.search(
                       r"over\s*55"
@@ -197,9 +188,7 @@ jobs:
                   ):
                       continue
 
-                  # -------------------------------
                   # PRICE
-                  # -------------------------------
 
                   prices = re.findall(
                       r"£\s*([0-9,]+)",
@@ -216,9 +205,7 @@ jobs:
                   if price > 750:
                       continue
 
-                  # -------------------------------
                   # TITLE
-                  # -------------------------------
 
                   title = ""
 
@@ -260,7 +247,7 @@ jobs:
               except Exception as error:
 
                   print(
-                      "Error checking:",
+                      "Error checking property:",
                       property_url,
                       error
                   )
@@ -270,9 +257,7 @@ jobs:
               len(properties)
           )
 
-          # -------------------------------
-          # LOAD PREVIOUS LIST
-          # -------------------------------
+          # LOAD PREVIOUS PROPERTIES
 
           old = {}
 
@@ -291,22 +276,6 @@ jobs:
 
                   old = {}
 
-          # -------------------------------
-          # FIRST RUN
-          # -------------------------------
-
-          if not old:
-
-              print(
-                  "First run detected - "
-                  "saving current properties "
-                  "without notifications."
-              )
-
-          # -------------------------------
-          # NEW PROPERTIES
-          # -------------------------------
-
           new_properties = [
               property_data
               for url, property_data in properties.items()
@@ -318,11 +287,75 @@ jobs:
               len(new_properties)
           )
 
-          # -------------------------------
-          # NTFY
-          # -------------------------------
+          # ------------------------------------------------
+          # TEST NOTIFICATION
+          # ------------------------------------------------
+          #
+          # If YOU manually run the workflow, send one test
+          # notification for the first matching property.
+          #
+          # Scheduled 5-minute runs will NOT send this test.
+          # ------------------------------------------------
 
-          if old and new_properties:
+          is_manual_run = (
+              os.environ.get(
+                  "GITHUB_EVENT_NAME"
+              ) == "workflow_dispatch"
+          )
+
+          if is_manual_run and properties:
+
+              print(
+                  "MANUAL TEST RUN - "
+                  "sending test notification."
+              )
+
+              topic = os.environ.get(
+                  "NTFY_TOPIC",
+                  ""
+              ).strip()
+
+              if not topic:
+
+                  print(
+                      "ERROR: NTFY_TOPIC secret is empty."
+                  )
+
+              else:
+
+                  test_property = list(
+                      properties.values()
+                  )[0]
+
+                  message = (
+                      f"{test_property['title']}\n"
+                      f"{test_property['bedrooms']} bedrooms\n"
+                      f"Rent: £{test_property['price']} "
+                      f"per month\n"
+                      f"{test_property['url']}"
+                  )
+
+                  ntfy_response = requests.post(
+                      f"https://ntfy.sh/{topic}",
+                      data=message.encode("utf-8"),
+                      headers={
+                          "Title": "🏠 TEST - NEW HOUSE",
+                          "Priority": "max",
+                          "Tags": "house"
+                      },
+                      timeout=20
+                  )
+
+                  ntfy_response.raise_for_status()
+
+                  print(
+                      "TEST NOTIFICATION SENT:",
+                      test_property["url"]
+                  )
+
+          # NORMAL AUTOMATIC NOTIFICATIONS
+
+          elif old and new_properties:
 
               topic = os.environ.get(
                   "NTFY_TOPIC",
@@ -359,15 +392,7 @@ jobs:
                           property_data["url"]
                       )
 
-              else:
-
-                  print(
-                      "NTFY_TOPIC secret is empty."
-                  )
-
-          # -------------------------------
           # SAVE CURRENT LIST
-          # -------------------------------
 
           with open(
               STATE_FILE,
@@ -380,9 +405,7 @@ jobs:
                   indent=2
               )
 
-          # -------------------------------
-          # SAVE TO GITHUB
-          # -------------------------------
+          # SAVE STATE TO GITHUB
 
           subprocess.run(
               [
@@ -442,6 +465,8 @@ jobs:
                   check=True
               )
 
-          print("Bot finished successfully.")
+          print(
+              "Bot finished successfully."
+          )
 
           PY
