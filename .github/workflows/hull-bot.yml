@@ -47,7 +47,6 @@ jobs:
           )
 
           STATE_FILE = "seen_properties.json"
-
           BASE_URL = "https://rent.placesforpeople.co.uk"
 
           headers = {
@@ -57,28 +56,20 @@ jobs:
               )
           }
 
-          # Allowed areas:
-          # Hull = HU1-HU9
-          # Anlaby / Willerby = HU10
-          # Hessle = HU13
-          allowed_postcodes = re.compile(
-              r"\bHU(?:[1-9]|10|13)\s?\d[A-Z]{2}\b",
-              re.IGNORECASE
-          )
+          # TEST VERSION:
+          # We temporarily allow Beverley so we can test
+          # whether the bot can detect the known 2-bedroom house there.
 
           allowed_places = [
               "hull",
+              "hessle",
               "anlaby",
               "willerby",
-              "hessle"
-          ]
-
-          rejected_places = [
               "beverley"
           ]
 
           print("Checking Places for People...")
-          print("Search area: Hull + Hessle + Anlaby + Willerby")
+          print("TEST AREA: Hull + Hessle + Anlaby + Willerby + Beverley")
           print("Maximum rent: £750")
           print("Minimum bedrooms: 2")
 
@@ -99,7 +90,7 @@ jobs:
 
           candidate_links = set()
 
-          # Find property links
+          # Find all individual property links
           for link in soup.find_all("a", href=True):
 
               href = link.get("href", "")
@@ -121,7 +112,7 @@ jobs:
 
           properties = {}
 
-          # Check every individual property
+          # Check every property page
           for property_url in candidate_links:
 
               try:
@@ -146,38 +137,23 @@ jobs:
 
                   lower = text.lower()
 
-                  # ------------------------------------------------
+                  # -------------------------------
                   # LOCATION
-                  # ------------------------------------------------
+                  # -------------------------------
 
-                  # Explicitly reject Beverley
-                  if any(
-                      place in lower
-                      for place in rejected_places
-                  ):
-                      print(
-                          "Rejected location (Beverley):",
-                          property_url
-                      )
-                      continue
-
-                  postcode_match = allowed_postcodes.search(text)
-
-                  place_match = any(
+                  if not any(
                       place in lower
                       for place in allowed_places
-                  )
-
-                  if not postcode_match and not place_match:
+                  ):
                       print(
                           "Rejected location:",
                           property_url
                       )
                       continue
 
-                  # ------------------------------------------------
-                  # PROPERTY TYPE
-                  # ------------------------------------------------
+                  # -------------------------------
+                  # HOUSE ONLY
+                  # -------------------------------
 
                   if "house" not in lower:
                       continue
@@ -189,9 +165,9 @@ jobs:
                   ):
                       continue
 
-                  # ------------------------------------------------
+                  # -------------------------------
                   # BEDROOMS
-                  # ------------------------------------------------
+                  # -------------------------------
 
                   bedroom_match = re.search(
                       r"(\d+)\s*bed(?:room)?s?",
@@ -208,9 +184,9 @@ jobs:
                   if bedrooms < 2:
                       continue
 
-                  # ------------------------------------------------
+                  # -------------------------------
                   # OVER 55
-                  # ------------------------------------------------
+                  # -------------------------------
 
                   if re.search(
                       r"over\s*55"
@@ -221,9 +197,9 @@ jobs:
                   ):
                       continue
 
-                  # ------------------------------------------------
+                  # -------------------------------
                   # PRICE
-                  # ------------------------------------------------
+                  # -------------------------------
 
                   prices = re.findall(
                       r"£\s*([0-9,]+)",
@@ -240,9 +216,9 @@ jobs:
                   if price > 750:
                       continue
 
-                  # ------------------------------------------------
+                  # -------------------------------
                   # TITLE
-                  # ------------------------------------------------
+                  # -------------------------------
 
                   title = ""
 
@@ -284,7 +260,7 @@ jobs:
               except Exception as error:
 
                   print(
-                      "Error checking property:",
+                      "Error checking:",
                       property_url,
                       error
                   )
@@ -294,9 +270,9 @@ jobs:
               len(properties)
           )
 
-          # ------------------------------------------------
-          # LOAD PREVIOUS PROPERTIES
-          # ------------------------------------------------
+          # -------------------------------
+          # LOAD PREVIOUS LIST
+          # -------------------------------
 
           old = {}
 
@@ -315,9 +291,9 @@ jobs:
 
                   old = {}
 
-          # ------------------------------------------------
+          # -------------------------------
           # FIRST RUN
-          # ------------------------------------------------
+          # -------------------------------
 
           if not old:
 
@@ -327,9 +303,9 @@ jobs:
                   "without notifications."
               )
 
-          # ------------------------------------------------
-          # FIND NEW PROPERTIES
-          # ------------------------------------------------
+          # -------------------------------
+          # NEW PROPERTIES
+          # -------------------------------
 
           new_properties = [
               property_data
@@ -342,9 +318,9 @@ jobs:
               len(new_properties)
           )
 
-          # ------------------------------------------------
-          # SEND NTFY
-          # ------------------------------------------------
+          # -------------------------------
+          # NTFY
+          # -------------------------------
 
           if old and new_properties:
 
@@ -389,9 +365,9 @@ jobs:
                       "NTFY_TOPIC secret is empty."
                   )
 
-          # ------------------------------------------------
-          # SAVE CURRENT PROPERTY LIST
-          # ------------------------------------------------
+          # -------------------------------
+          # SAVE CURRENT LIST
+          # -------------------------------
 
           with open(
               STATE_FILE,
@@ -404,9 +380,9 @@ jobs:
                   indent=2
               )
 
-          # ------------------------------------------------
-          # SAVE STATE TO GITHUB
-          # ------------------------------------------------
+          # -------------------------------
+          # SAVE TO GITHUB
+          # -------------------------------
 
           subprocess.run(
               [
