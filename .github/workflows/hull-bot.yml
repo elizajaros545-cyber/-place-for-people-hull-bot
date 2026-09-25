@@ -58,8 +58,7 @@ jobs:
           }
 
           # TEST VERSION
-          # Beverley is temporarily included so we can test
-          # that the bot can find the known £560 house.
+          # Beverley is temporarily included to test notifications.
 
           allowed_places = [
               "hull",
@@ -70,7 +69,10 @@ jobs:
           ]
 
           print("Checking Places for People...")
-          print("TEST AREA: Hull + Hessle + Anlaby + Willerby + Beverley")
+          print(
+              "TEST AREA: Hull + Hessle + Anlaby + "
+              "Willerby + Beverley"
+          )
           print("Maximum rent: £750")
           print("Minimum bedrooms: 2")
 
@@ -287,15 +289,7 @@ jobs:
               len(new_properties)
           )
 
-          # ------------------------------------------------
-          # TEST NOTIFICATION
-          # ------------------------------------------------
-          #
-          # If YOU manually run the workflow, send one test
-          # notification for the first matching property.
-          #
-          # Scheduled 5-minute runs will NOT send this test.
-          # ------------------------------------------------
+          # MANUAL TEST NOTIFICATION
 
           is_manual_run = (
               os.environ.get(
@@ -328,6 +322,7 @@ jobs:
                   )[0]
 
                   message = (
+                      "HOUSE TEST\n"
                       f"{test_property['title']}\n"
                       f"{test_property['bedrooms']} bedrooms\n"
                       f"Rent: £{test_property['price']} "
@@ -339,7 +334,7 @@ jobs:
                       f"https://ntfy.sh/{topic}",
                       data=message.encode("utf-8"),
                       headers={
-                          "Title": "🏠 TEST - NEW HOUSE",
+                          "Title": "TEST - NEW HOUSE",
                           "Priority": "max",
                           "Tags": "house"
                       },
@@ -367,6 +362,7 @@ jobs:
                   for property_data in new_properties:
 
                       message = (
+                          "NEW HOUSE\n"
                           f"{property_data['title']}\n"
                           f"{property_data['bedrooms']} bedrooms\n"
                           f"Rent: £{property_data['price']} "
@@ -378,7 +374,7 @@ jobs:
                           f"https://ntfy.sh/{topic}",
                           data=message.encode("utf-8"),
                           headers={
-                              "Title": "🏠 NEW HOUSE",
+                              "Title": "NEW HOUSE",
                               "Priority": "max",
                               "Tags": "house"
                           },
@@ -465,8 +461,6 @@ jobs:
                   check=True
               )
 
-          print(
-              "Bot finished successfully."
-          )
+          print("Bot finished successfully.")
 
           PY
