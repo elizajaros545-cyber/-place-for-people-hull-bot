@@ -23,7 +23,6 @@ jobs:
       - name: Check Places for People
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
           python - <<'PY'
           import requests
@@ -57,21 +56,20 @@ jobs:
               )
           }
 
-          # TEST VERSION
-          # Beverley is temporarily included to test notifications.
-
           allowed_places = [
               "hull",
               "hessle",
               "anlaby",
-              "willerby",
+              "willerby"
+          ]
+
+          rejected_places = [
               "beverley"
           ]
 
           print("Checking Places for People...")
           print(
-              "TEST AREA: Hull + Hessle + Anlaby + "
-              "Willerby + Beverley"
+              "AREA: Hull + Hessle + Anlaby + Willerby"
           )
           print("Maximum rent: £750")
           print("Minimum bedrooms: 2")
@@ -138,7 +136,19 @@ jobs:
 
                   lower = text.lower()
 
+                  # -------------------------------
                   # LOCATION
+                  # -------------------------------
+
+                  if any(
+                      place in lower
+                      for place in rejected_places
+                  ):
+                      print(
+                          "Rejected location:",
+                          property_url
+                      )
+                      continue
 
                   if not any(
                       place in lower
@@ -150,7 +160,9 @@ jobs:
                       )
                       continue
 
+                  # -------------------------------
                   # HOUSE ONLY
+                  # -------------------------------
 
                   if "house" not in lower:
                       continue
@@ -162,7 +174,9 @@ jobs:
                   ):
                       continue
 
+                  # -------------------------------
                   # BEDROOMS
+                  # -------------------------------
 
                   bedroom_match = re.search(
                       r"(\d+)\s*bed(?:room)?s?",
@@ -179,7 +193,9 @@ jobs:
                   if bedrooms < 2:
                       continue
 
+                  # -------------------------------
                   # OVER 55
+                  # -------------------------------
 
                   if re.search(
                       r"over\s*55"
@@ -190,7 +206,9 @@ jobs:
                   ):
                       continue
 
+                  # -------------------------------
                   # PRICE
+                  # -------------------------------
 
                   prices = re.findall(
                       r"£\s*([0-9,]+)",
@@ -207,7 +225,9 @@ jobs:
                   if price > 750:
                       continue
 
+                  # -------------------------------
                   # TITLE
+                  # -------------------------------
 
                   title = ""
 
@@ -259,7 +279,9 @@ jobs:
               len(properties)
           )
 
+          # -------------------------------
           # LOAD PREVIOUS PROPERTIES
+          # -------------------------------
 
           old = {}
 
@@ -278,6 +300,10 @@ jobs:
 
                   old = {}
 
+          # -------------------------------
+          # FIND NEW PROPERTIES
+          # -------------------------------
+
           new_properties = [
               property_data
               for url, property_data in properties.items()
@@ -289,68 +315,11 @@ jobs:
               len(new_properties)
           )
 
-          # MANUAL TEST NOTIFICATION
+          # -------------------------------
+          # NORMAL NOTIFICATIONS ONLY
+          # -------------------------------
 
-          is_manual_run = (
-              os.environ.get(
-                  "GITHUB_EVENT_NAME"
-              ) == "workflow_dispatch"
-          )
-
-          if is_manual_run and properties:
-
-              print(
-                  "MANUAL TEST RUN - "
-                  "sending test notification."
-              )
-
-              topic = os.environ.get(
-                  "NTFY_TOPIC",
-                  ""
-              ).strip()
-
-              if not topic:
-
-                  print(
-                      "ERROR: NTFY_TOPIC secret is empty."
-                  )
-
-              else:
-
-                  test_property = list(
-                      properties.values()
-                  )[0]
-
-                  message = (
-                      "HOUSE TEST\n"
-                      f"{test_property['title']}\n"
-                      f"{test_property['bedrooms']} bedrooms\n"
-                      f"Rent: £{test_property['price']} "
-                      f"per month\n"
-                      f"{test_property['url']}"
-                  )
-
-                  ntfy_response = requests.post(
-                      f"https://ntfy.sh/{topic}",
-                      data=message.encode("utf-8"),
-                      headers={
-                          "Title": "TEST - NEW HOUSE",
-                          "Priority": "max",
-                          "Tags": "house"
-                      },
-                      timeout=20
-                  )
-
-                  ntfy_response.raise_for_status()
-
-                  print(
-                      "TEST NOTIFICATION SENT:",
-                      test_property["url"]
-                  )
-
-          # NORMAL AUTOMATIC NOTIFICATIONS
-
-          elif old and new_properties:
+          if old and new_properties:
 
               topic = os.environ.get(
                   "NTFY_TOPIC",
@@ -388,7 +357,15 @@ jobs:
                           property_data["url"]
                       )
 
-          # SAVE CURRENT LIST
+              else:
+
+                  print(
+                      "NTFY_TOPIC secret is empty."
+                  )
+
+          # -------------------------------
+          # SAVE CURRENT PROPERTY LIST
+          # -------------------------------
 
           with open(
               STATE_FILE,
@@ -401,7 +378,9 @@ jobs:
                   indent=2
               )
 
+          # -------------------------------
           # SAVE STATE TO GITHUB
+          # -------------------------------
 
           subprocess.run(
               [
